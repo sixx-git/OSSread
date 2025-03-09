@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>阿里云OSS文件管理器 (服务器代理版)</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        .upload-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            border: 1px solid #eee;
+        }
+        .file-list {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .file-header {
+            display: flex;
+            background-color: #f0f0f0;
+            padding: 10px 15px;
+            font-weight: bold;
+            border-bottom: 1px solid #ddd;
+        }
+        .file-item {
+            display: flex;
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            align-items: center;
+        }
+        .file-item:hover {
+            background-color: #f5f5f5;
+        }
+        .file-name {
+            flex: 3;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .file-size {
+            flex: 1;
+            color: #666;
+        }
+        .file-date {
+            flex: 2;
+            color: #666;
+        }
+        .file-actions {
+            flex: 1;
+            text-align: right;
+        }
+        .file-actions a {
+            margin-left: 10px;
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .file-actions a:hover {
+            text-decoration: underline;
+        }
+        .folder {
+            cursor: pointer;
+            color: #0066cc;
+            font-weight: bold;
+        }
+        .current-path {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .loading {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+        .btn {
+            padding: 8px 16px;
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn:hover {
+            background-color: #0055aa;
+        }
+        .btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .error {
+            color: #cc0000;
+            background-color: #ffeeee;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .success {
+            color: #007700;
+            background-color: #eeffee;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .progress-container {
+            margin-top: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            height: 20px;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #0066cc;
+            text-align: center;
+            color: white;
+            font-size: 12px;
+            line-height: 20px;
+            width: 0%;
+        }
+        .folder-actions {
+            margin-bottom: 15px;
+        }
+        .folder-input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>阿里云OSS文件管理器</h1>
+        
+        <div id="status"></div>
+        
+        <div class="upload-section">
+            <h2>上传文件</h2>
+            <form id="uploadForm" enctype="multipart/form-data">
+                <input type="file" id="fileInput" name="file" />
+                <button type="button" id="uploadBtn" class="btn">上传</button>
+                <div id="uploadStatus"></div>
+                <div id="progressContainer" class="progress-container">
+                    <div id="progressBar" class="progress-bar">0%</div>
+                </div>
+            </form>
+        </div>
+        
+        <div class="folder-actions">
+            <h2>创建文件夹</h2>
+            <input type="text" id="folderInput" class="folder-input" placeholder="输入文件夹名称" />
+            <button id="createFolderBtn" class="btn">创建文件夹</button>
+            <div id="folderStatus"></div>
+        </div>
+        
+        <h2>文件列表</h2>
+        <div id="currentPath" class="current-path">当前路径: /</div>
+        
+        <div class="file-list">
+            <div class="file-header">
+                <div class="file-name">名称</div>
+                <div class="file-size">大小</div>
+                <div class="file-date">修改日期</div>
+                <div class="file-actions">操作</div>
+            </div>
+            <div id="fileList">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 全局变量
+        let currentPrefix = '';
+        
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', async () => {
+            // 获取文件列表
+            listFiles();
+            
+            // 上传文件
+            const uploadBtn = document.getElementById('uploadBtn');
+            const fileInput = document.getElementById('fileInput');
+            const uploadStatus = document.getElementById('uploadStatus');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            
+            uploadBtn.addEventListener('click', async () => {
+                if (!fileInput.files.length) {
+                    uploadStatus.innerHTML = '<div class="error">请选择要上传的文件</div>';
+                    return;
+                }
+                
+                const file = fileInput.files[0];
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('prefix', currentPrefix);
+                
+                try {
+                    uploadStatus.innerHTML = '<div>上传中...</div>';
+                    progressContainer.style.display = 'block';
+                    
+                    // 使用XMLHttpRequest上传文件，以便跟踪进度
+                    const xhr = new XMLHttpRequest();
+                    
+                    xhr.upload.onprogress = (event) => {
+                        if (event.lengthComputable) {
+                            const percent = Math.floor((event.loaded / event.total) * 100);
+                            progressBar.style.width = `${percent}%`;
+                            progressBar.textContent = `${percent}%`;
+                        }
+                    };
+                    
+                    xhr.onload = function() {
+                        if (xhr.status === 200) {
+                            uploadStatus.innerHTML = '<div class="success">文件上传成功!</div>';
+                            // 刷新文件列表
+                            listFiles(currentPrefix);
+                            // 清空文件输入
+                            fileInput.value = '';
+                        } else {
+                            uploadStatus.innerHTML = `<div class="error">上传失败: ${xhr.statusText}</div>`;
+                        }
+                        progressContainer.style.display = 'none';
+                    };
+                    
+                    xhr.onerror = function() {
+                        uploadStatus.innerHTML = '<div class="error">上传失败: 网络错误</div>';
+                        progressContainer.style.display = 'none';
+                    };
+                    
+                    xhr.open('POST', 'http://localhost:3006/upload', true);
+                    xhr.send(formData);
+                    
+                } catch (error) {
+                    console.error('上传文件失败:', error);
+                    uploadStatus.innerHTML = `<div class="error">上传失败: ${error.message || error}</div>`;
+                    progressContainer.style.display = 'none';
+                }
+            });
+            
+            // 创建文件夹
+            const createFolderBtn = document.getElementById('createFolderBtn');
+            const folderInput = document.getElementById('folderInput');
+            const folderStatus = document.getElementById('folderStatus');
+            
+            createFolderBtn.addEventListener('click', async () => {
+                const folderName = folderInput.value.trim();
+                
+                if (!folderName) {
+                    folderStatus.innerHTML = '<div class="error">请输入文件夹名称</div>';
+                    return;
+                }
+                
+                try {
+                    folderStatus.innerHTML = '<div>创建中...</div>';
+                    
+                    const response = await fetch('http://localhost:3006/create-folder', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            folderName: folderName,
+                            prefix: currentPrefix
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('创建文件夹失败');
+                    }
+                    
+                    folderStatus.innerHTML = '<div class="success">文件夹创建成功!</div>';
+                    // 刷新文件列表
+                    listFiles(currentPrefix);
+                    // 清空输入
+                    folderInput.value = '';
+                    
+                } catch (error) {
+                    console.error('创建文件夹失败:', error);
+                    folderStatus.innerHTML = `<div class="error">创建文件夹失败: ${error.message || error}</div>`;
+                }
+            });
+        });
+        
+        // 获取文件列表
+        async function listFiles(prefix = '') {
+            currentPrefix = prefix;
+            updateCurrentPath();
+            
+            const fileListElement = document.getElementById('fileList');
+            fileListElement.innerHTML = '<div class="loading">加载中...</div>';
+            
+            try {
+                console.log(`获取文件列表，前缀: ${prefix}`);
+                
+                // 获取文件列表
+                const response = await fetch(`http://localhost:3006/list?prefix=${encodeURIComponent(prefix)}`);
+                
+                if (!response.ok) {
+                    let errorMessage = '服务器返回错误: ' + response.status;
+                    try {
+                        const errorData = await response.json();
+                        console.error('服务器错误详情:', errorData);
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (e) {
+                        // 如果不是JSON格式，尝试获取文本
+                        const errorText = await response.text();
+                        errorMessage = errorText || errorMessage;
+                    }
+                    throw new Error('获取文件列表失败: ' + errorMessage);
+                }
+                
+                const data = await response.json();
+                console.log('获取到的文件列表数据:', data);
+                
+                let html = '';
+                
+                // 如果不是根目录，添加返回上一级的链接
+                if (prefix) {
+                    const parentPrefix = prefix.split('/').slice(0, -2).join('/');
+                    html += `
+                        <div class="file-item">
+                            <div class="file-name folder" onclick="listFiles('${parentPrefix ? parentPrefix + '/' : ''}')">
+                                ../ (返回上一级)
+                            </div>
+                            <div class="file-size"></div>
+                            <div class="file-date"></div>
+                            <div class="file-actions"></div>
+                        </div>
+                    `;
+                }
+                
+                // 添加文件夹
+                if (data.folders && data.folders.length > 0) {
+                    data.folders.forEach(folder => {
+                        html += `
+                            <div class="file-item">
+                                <div class="file-name folder" onclick="listFiles('${folder.fullPath}')">
+                                    📁 ${folder.name}/
+                                </div>
+                                <div class="file-size">文件夹</div>
+                                <div class="file-date"></div>
+                                <div class="file-actions"></div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                // 添加文件
+                if (data.files && data.files.length > 0) {
+                    data.files.forEach(file => {
+                        const fileSize = formatFileSize(file.size);
+                        const fileDate = new Date(file.lastModified).toLocaleString();
+                        
+                        html += `
+                            <div class="file-item">
+                                <div class="file-name">📄 ${file.name}</div>
+                                <div class="file-size">${fileSize}</div>
+                                <div class="file-date">${fileDate}</div>
+                                <div class="file-actions">
+                                    <a href="${file.viewUrl}" target="_blank">查看</a>
+                                    <a href="${file.downloadUrl}">下载</a>
+                                    <a href="javascript:void(0)" onclick="deleteFile('${file.fullPath}')">删除</a>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                if (html === '') {
+                    html = '<div class="loading">没有文件</div>';
+                }
+                
+                fileListElement.innerHTML = html;
+                
+            } catch (error) {
+                console.error('获取文件列表失败:', error);
+                document.getElementById('fileList').innerHTML = `
+                    <div class="error">
+                        获取文件列表失败: ${error.message || error}
+                    </div>
+                `;
+            }
+        }
+        
+        // 删除文件
+        async function deleteFile(objectName) {
+            if (!confirm(`确定要删除 ${objectName} 吗?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`http://localhost:3006/delete?objectName=${encodeURIComponent(objectName)}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('删除文件失败');
+                }
+                
+                alert('文件删除成功!');
+                // 刷新文件列表
+                listFiles(currentPrefix);
+            } catch (error) {
+                console.error('删除文件失败:', error);
+                alert(`删除文件失败: ${error.message || error}`);
+            }
+        }
+        
+        // 更新当前路径显示
+        function updateCurrentPath() {
+            const pathElement = document.getElementById('currentPath');
+            if (!currentPrefix) {
+                pathElement.textContent = '当前路径: /';
+                return;
+            }
+            
+            let html = '当前路径: / ';
+            const parts = currentPrefix.split('/').filter(Boolean);
+            let accPath = '';
+            
+            parts.forEach((part, index) => {
+                accPath += part + '/';
+                html += `<span class="folder" onclick="listFiles('${accPath}')">${part}</span> / `;
+            });
+            
+            pathElement.innerHTML = html;
+        }
+        
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>

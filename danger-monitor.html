@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>危险行为监控系统</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        .record-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .record-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+        .record-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+        .record-header {
+            background-color: #0066cc;
+            color: white;
+            padding: 12px 15px;
+            font-weight: bold;
+        }
+        .record-body {
+            padding: 15px;
+        }
+        .record-details {
+            display: none;
+            padding: 15px;
+            border-top: 1px solid #eee;
+        }
+        .record-image-container {
+            display: none;
+            padding: 15px;
+            border-top: 1px solid #eee;
+            text-align: center;
+        }
+        .record-image {
+            max-width: 100%;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .image-navigation {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        .nav-button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .nav-button:hover {
+            background-color: #0055aa;
+        }
+        .nav-button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .image-counter {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .loading {
+            text-align: center;
+            padding: 30px;
+            font-size: 18px;
+            color: #666;
+        }
+        .error {
+            color: #cc0000;
+            background-color: #ffeeee;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 14px;
+        }
+        .danger-type {
+            display: inline-block;
+            background-color: #ff6600;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            margin-top: 8px;
+            font-size: 14px;
+            margin-right: 5px;
+            cursor: pointer;
+        }
+        .danger-type:hover {
+            background-color: #ff4500;
+        }
+        .show {
+            display: block !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>危险行为监控系统</h1>
+        
+        <div id="status"></div>
+        
+        <div id="recordList" class="record-list">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+
+    <script>
+        let records = [];
+        let currentImages = {}; // 存储当前显示的图片信息
+        
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // 获取危险行为记录
+                const response = await fetch('/danger-records');
+                const data = await response.json();
+                
+                // 显示记录
+                displayRecords(data.records);
+            } catch (error) {
+                console.error('获取记录失败:', error);
+                document.getElementById('records-container').innerHTML = `
+                    <div class="error">获取记录失败: ${error.message || '未知错误'}</div>
+                `;
+            }
+        });
+        
+        // 显示记录
+        function displayRecords(records) {
+            const container = document.getElementById('records-container');
+            
+            if (!records || records.length === 0) {
+                container.innerHTML = '<div class="no-records">没有找到危险行为记录</div>';
+                return;
+            }
+            
+            let html = '';
+            
+            // 按路段分组记录
+            const recordsBySegment = {};
+            records.forEach(record => {
+                if (!recordsBySegment[record.segmentName]) {
+                    recordsBySegment[record.segmentName] = [];
+                }
+                recordsBySegment[record.segmentName].push(record);
+            });
+            
+            // 为每个路段创建一个行
+            Object.keys(recordsBySegment).forEach((segmentName, segmentIndex) => {
+                const segmentRecords = recordsBySegment[segmentName];
+                
+                html += `<div class="segment-row">`;
+                
+                // 为每个记录创建一个卡片
+                segmentRecords.forEach((record, recordIndex) => {
+                    // 使用数字索引作为唯一ID，避免使用路段名称可能导致的问题
+                    const recordId = `record_${segmentIndex}_${recordIndex}`;
+                    
+                    html += `
+                        <div class="record-card">
+                            <div class="record-header" onclick="toggleRecordDetails('${recordId}')">
+                                <h3>${record.segmentName}</h3>
+                                <div class="danger-types">
+                                    ${record.dangerTypes.map(type => `<span class="danger-tag">${type}</span>`).join('')}
+                                </div>
+                                ${record.timeRange ? `<div class="time-range">${record.timeRange}</div>` : ''}
+                            </div>
+                            <div id="details-${recordId}" class="record-details">
+                                <div class="tabs">
+                                    ${record.dangerTypes.map(type => `
+                                        <button class="tab-button" onclick="showDangerType('${recordId}', '${type}')">${type}</button>
+                                    `).join('')}
+                                </div>
+                                <div id="images-${recordId}" class="images-container">
+                                    ${record.dangerTypes.length > 0 ? `
+                                        <div class="image-viewer">
+                                            <img id="image-${recordId}" src="${record.dangerTypeImages[record.dangerTypes[0]][0]?.url || ''}" alt="危险行为图片">
+                                            <div class="image-navigation">
+                                                <button id="prev-${recordId}" onclick="navigateImage('${recordId}', 'prev')" disabled>上一张</button>
+                                                <span id="image-counter-${recordId}">图片 1/${record.dangerTypeImages[record.dangerTypes[0]].length}</span>
+                                                <button id="next-${recordId}" onclick="navigateImage('${recordId}', 'next')" ${record.dangerTypeImages[record.dangerTypes[0]].length <= 1 ? 'disabled' : ''}>下一张</button>
+                                            </div>
+                                        </div>
+                                    ` : '<div class="no-images">没有图片</div>'}
+                                </div>
+                                ${record.textFiles && record.textFiles.length > 0 ? `
+                                    <div class="text-files">
+                                        <h4>文本文件:</h4>
+                                        <ul>
+                                            ${record.textFiles.map(file => `
+                                                <li><a href="${file.url}" target="_blank">${file.name}</a></li>
+                                            `).join('')}
+                                        </ul>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += `</div>`;
+            });
+            
+            container.innerHTML = html;
+            
+            // 初始化记录状态
+            records.forEach((record, index) => {
+                if (record.dangerTypes.length > 0) {
+                    recordImageInfo[`record_${index}`] = {
+                        currentType: record.dangerTypes[0],
+                        currentIndex: 0,
+                        images: record.dangerTypeImages[record.dangerTypes[0]]
+                    };
+                }
+            });
+        }
+        
+        // 记录图片信息
+        const recordImageInfo = {};
+        
+        // 切换记录详情的显示/隐藏
+        function toggleRecordDetails(recordId) {
+            const detailsElement = document.getElementById(`details-${recordId}`);
+            if (detailsElement.classList.contains('show')) {
+                detailsElement.classList.remove('show');
+            } else {
+                detailsElement.classList.add('show');
+            }
+        }
+        
+        // 显示特定类型的危险行为图片
+        function showDangerType(recordId, type) {
+            const record = recordImageInfo[recordId];
+            if (!record) return;
+            
+            // 更新当前类型
+            record.currentType = type;
+            record.currentIndex = 0;
+            record.images = dangerTypeImages[recordId][type];
+            
+            // 更新图片
+            const imageElement = document.getElementById(`image-${recordId}`);
+            const imageCounterElement = document.getElementById(`image-counter-${recordId}`);
+            const prevButton = document.getElementById(`prev-${recordId}`);
+            const nextButton = document.getElementById(`next-${recordId}`);
+            
+            if (record.images && record.images.length > 0) {
+                imageElement.src = record.images[0].url;
+                imageCounterElement.textContent = `图片 1/${record.images.length}`;
+                prevButton.disabled = true;
+                nextButton.disabled = record.images.length <= 1;
+            } else {
+                imageElement.src = '';
+                imageCounterElement.textContent = '没有图片';
+                prevButton.disabled = true;
+                nextButton.disabled = true;
+            }
+        }
+        
+        // 图片导航
+        function navigateImage(recordId, direction) {
+            const info = recordImageInfo[recordId];
+            if (!info || !info.images || info.images.length === 0) return;
+            
+            let newIndex = info.currentIndex;
+            if (direction === 'prev') {
+                newIndex = Math.max(0, newIndex - 1);
+            } else {
+                newIndex = Math.min(info.images.length - 1, newIndex + 1);
+            }
+            
+            if (newIndex === info.currentIndex) return;
+            
+            info.currentIndex = newIndex;
+            
+            // 更新图片
+            const imageElement = document.getElementById(`image-${recordId}`);
+            const imageCounterElement = document.getElementById(`image-counter-${recordId}`);
+            const prevButton = document.getElementById(`prev-${recordId}`);
+            const nextButton = document.getElementById(`next-${recordId}`);
+            
+            imageElement.src = info.images[newIndex].url;
+            imageCounterElement.textContent = `图片 ${newIndex + 1}/${info.images.length}`;
+            
+            // 更新导航按钮状态
+            prevButton.disabled = newIndex === 0;
+            nextButton.disabled = newIndex === info.images.length - 1;
+        }
+    </script>
+</body>
+</html> 
